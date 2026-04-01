@@ -263,6 +263,7 @@ h2 {
   margin: 0 auto 28px;
   position: relative;
   animation: breathe 6s ease-in-out infinite;
+  cursor: pointer;
 }
 .breathing-ring::before {
   content: '';
@@ -304,6 +305,14 @@ h2 {
   border-radius: 2px;
   width: 0%;
   transition: width 1s linear;
+}
+.tap-hint {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1rem;
+  font-style: italic;
+  color: var(--lavender);
+  margin-bottom: 16px;
+  animation: fadeUp 1s ease;
 }
 .quiz-q {
   font-family: 'Cormorant Garamond', serif;
@@ -533,14 +542,15 @@ select option { background: var(--deep); }
 
   <div class="screen" id="screen-audio">
     <div class="audio-stage">
-      <div class="breathing-ring"><div class="inner-moon"></div></div>
-      <div class="audio-phase" id="audio-phase">Settling in...</div>
-      <div class="audio-status" id="audio-status">Your lesson will begin shortly</div>
+      <div class="breathing-ring" id="moon-tap-target"><div class="inner-moon"></div></div>
+      <div class="tap-hint" id="tap-hint">Tap the moon to begin</div>
+      <div class="audio-phase" id="audio-phase"></div>
+      <div class="audio-status" id="audio-status"></div>
       <div class="progress-bar"><div class="progress-fill" id="audio-progress"></div></div>
-      <p style="font-size:0.78rem;color:var(--text-dim);text-align:center;line-height:1.6;margin-bottom:28px">
-        You can set your phone down now.<br>Let the words drift over you.
+      <p style="font-size:0.78rem;color:var(--text-dim);text-align:center;line-height:1.6;margin-bottom:28px" id="audio-hint">
+        Tap the moon above when you are ready.
       </p>
-      <button class="btn-ghost" id="btn-stop-audio">End session</button>
+      <button class="btn-ghost" id="btn-stop-audio">Cancel</button>
     </div>
   </div>
 
@@ -623,9 +633,9 @@ select option { background: var(--deep); }
   var selectedDirection = null;
   var quizAnswers = [];
   var currentQ = 0;
-  var audioTimer = null;
   var progressInterval = null;
   var toastTimer = null;
+  var lessonRunning = false;
 
   var QUIZ = [
     { q: 'How did last night\'s lesson feel?', opts: ['Very calming', 'Somewhat calming', 'Neutral', 'Distracting'] },
@@ -653,7 +663,7 @@ select option { background: var(--deep); }
     document.getElementById('btn-start-evening').addEventListener('click', function() { showScreen('prebedtime'); });
     document.getElementById('btn-go-morning').addEventListener('click', function() { showScreen('morning'); });
     document.getElementById('btn-go-checkin').addEventListener('click', function() { showScreen('checkin'); });
-    document.getElementById('btn-to-audio').addEventListener('click', startAudio);
+    document.getElementById('btn-to-audio').addEventListener('click', goToAudio);
     document.getElementById('btn-prebedtime-back').addEventListener('click', function() { showScreen('home'); });
     document.getElementById('btn-stop-audio').addEventListener('click', stopAudio);
     document.getElementById('btn-submit-morning').addEventListener('click', submitMorning);
@@ -816,16 +826,41 @@ select option { background: var(--deep); }
     });
   }
 
-  function startAudio() {
+  // Go to audio screen and set up tap-to-start
+  function goToAudio() {
+    lessonRunning = false;
     showScreen('audio');
-    var dir = selectedDirection ? selectedDirection.title : 'Historical roots';
-    runLessonSequence(dir);
+
+    // Reset audio screen state
+    document.getElementById('tap-hint').style.display = 'block';
+    document.getElementById('audio-phase').textContent = '';
+    document.getElementById('audio-status').textContent = '';
+    document.getElementById('audio-hint').textContent = 'Tap the moon above when you are ready.';
+    document.getElementById('audio-progress').style.width = '0%';
+    document.getElementById('btn-stop-audio').textContent = 'Cancel';
+
+    // Tap the moon to begin — satisfies iOS audio unlock
+    var moonEl = document.getElementById('moon-tap-target');
+    function onMoonTap() {
+      if (lessonRunning) return;
+      lessonRunning = true;
+      moonEl.removeEventListener('click', onMoonTap);
+      document.getElementById('tap-hint').style.display = 'none';
+      document.getElementById('audio-hint').textContent = 'You can set your phone down now.';
+      document.getElementById('btn-stop-audio').textContent = 'End session';
+      var dir = selectedDirection ? selectedDirection.title : 'Historical roots';
+      runLessonSequence(dir);
+    }
+    moonEl.addEventListener('click', onMoonTap);
   }
 
   function stopAudio() {
     window.speechSynthesis.cancel();
-    if (audioTimer) clearTimeout(audioTimer);
-    if (progressInterval) clearInterval(progressInterval);
+    if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+    lessonRunning = false;
+    if (todayEntry && !todayEntry.lessonDone) {
+      // Only mark done if lesson actually started
+    }
     todayEntry.lessonDone = true;
     todayEntry.lessonDirection = selectedDirection ? selectedDirection.title : '';
     saveProfileData();
@@ -888,11 +923,7 @@ select option { background: var(--deep); }
     var ramble;
     if (sessions > 0) {
       ramble = 'You have been on this journey for ' + sessions + ' nights now, learning about ' + goal + '. ';
-      if (lastNote) {
-        ramble += 'Last time you shared something: ' + lastNote + '. Let us carry that forward. ';
-      } else {
-        ramble += 'Each night the ideas go a little deeper. ';
-      }
+      ramble += lastNote ? 'Last time you shared something: ' + lastNote + '. Let us carry that forward. ' : 'Each night the ideas go a little deeper. ';
       ramble += 'And why are you doing this? ' + (why || 'Because it matters to you, and that is enough.');
     } else {
       ramble = 'Tonight is the beginning of something. You have chosen to learn about ' + goal + ', and you have a reason for that. ';
@@ -1041,7 +1072,7 @@ select option { background: var(--deep); }
       'What would it feel like to truly master ' + profile.mainGoal + '?',
       'In one word, how does ' + profile.mainGoal + ' make you feel today?',
       'Imagine explaining ' + profile.mainGoal + ' to someone you love. What would you say first?',
-      'What part of ' + profile.mainGoal + ' surprised you most since you started learning?',
+      'What part of ' + profile.mainGoal + ' surprised you most since you started?',
       'Your personal why: ' + (profile.personalWhy || 'not yet set') + '. Does it still ring true today?'
     ];
     document.getElementById('checkin-thought').textContent = nudges[now.getHours() % nudges.length];
